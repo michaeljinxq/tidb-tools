@@ -495,16 +495,18 @@ func (c *PumpsClient) watchStatus(revision int64) {
 			Logger.Info("[pumps client] watch status finished")
 			return
 		case <-ticker:
+			Logger.Infof("[pumps client] get all pumps again")
 			revision, err := c.getPumpStatus(c.ctx)
 			if err == nil {
 				c.Pumps.Lock()
 				c.Selector.SetPumps(copyPumps(c.Pumps.AvaliablePumps))
 				c.Pumps.Unlock()
 			}
-			Logger.Infof("[pumps client] get all pumps again, get %d pumps", len(c.Pumps.Pumps}))
+			Logger.Infof("[pumps client] get %d pumps", len(c.Pumps.Pumps}))
 			rch = c.EtcdRegistry.WatchNode(c.ctx, rootPath, revision)
 			continue
 		case wresp := <-rch:
+			log.Info("[pumps client] get new event")
 			err := wresp.Err()
 			if err != nil {
 				// meet error, some event may missed, get all the pump's information from etcd again.
