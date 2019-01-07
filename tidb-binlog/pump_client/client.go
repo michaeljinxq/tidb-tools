@@ -487,11 +487,23 @@ func (c *PumpsClient) watchStatus(revision int64) {
 	defer c.wg.Done()
 	rootPath := path.Join(node.DefaultRootPath, node.NodePrefix[node.PumpNode])
 	rch := c.EtcdRegistry.WatchNode(c.ctx, rootPath, revision)
+	ticker := time.Tick(1 * time.Minute)
+
 	for {
 		select {
 		case <-c.ctx.Done():
 			Logger.Info("[pumps client] watch status finished")
 			return
+		case <-ticker:
+			revision, err := c.getPumpStatus(c.ctx)
+			if err == nil {
+				c.Pumps.Lock()
+				c.Selector.SetPumps(copyPumps(c.Pumps.AvaliablePumps))
+				c.Pumps.Unlock()
+			}
+			Logger.Infof("[pumps client] get all pumps again, get %d pumps", len(c.Pumps.Pumps}))
+			rch = c.EtcdRegistry.WatchNode(c.ctx, rootPath, revision)
+			continue
 		case wresp := <-rch:
 			err := wresp.Err()
 			if err != nil {
