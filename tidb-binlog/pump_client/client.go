@@ -494,14 +494,14 @@ func (c *PumpsClient) watchStatus(revision int64) {
 			Logger.Info("[pumps client] watch status finished")
 			return
 		case <-time.Tick(30 * time.Second):
-			Logger.Infof("[pumps client] get all pumps again")
+			log.Infof("[pumps client] get all pumps again")
 			revision, err := c.getPumpStatus(c.ctx)
 			if err == nil {
 				c.Pumps.Lock()
 				c.Selector.SetPumps(copyPumps(c.Pumps.AvaliablePumps))
 				c.Pumps.Unlock()
 			}
-			Logger.Infof("[pumps client] get %d pumps", len(c.Pumps.Pumps))
+			log.Infof("[pumps client] get %d pumps", len(c.Pumps.Pumps))
 			rch = c.EtcdRegistry.WatchNode(c.ctx, rootPath, revision)
 			continue
 		case wresp := <-rch:
@@ -538,7 +538,7 @@ func (c *PumpsClient) watchStatus(revision int64) {
 
 					pump, avaliableChanged, avaliable := c.updatePump(status)
 					if avaliableChanged {
-						Logger.Infof("[pumps client] pump %s's state is changed to %s", pump.Status.NodeID, status.State)
+						Logger.Infof("[pumps client] flag pump %s's state is changed to %s", pump.Status.NodeID, status.State)
 						c.setPumpAvaliable(pump, avaliable)
 					}
 
