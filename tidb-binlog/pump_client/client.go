@@ -168,15 +168,17 @@ func NewPumpsClient(etcdURLs string, timeout time.Duration, securityOpt pd.Secur
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	Logger.Infof("[pumps client] get all pumps, revision: %d", revision)
 
 	if len(newPumpsClient.Pumps.Pumps) == 0 {
 		return nil, errors.New("no pump found in pd")
 	}
 	newPumpsClient.Selector.SetPumps(copyPumps(newPumpsClient.Pumps.AvaliablePumps))
 
-	newPumpsClient.wg.Add(2)
+	newPumpsClient.wg.Add(3)
 	go newPumpsClient.watchStatus(revision)
 	go newPumpsClient.detect()
+	go newPumpsClient.getALlPumps()
 
 	return newPumpsClient, nil
 }
@@ -482,6 +484,28 @@ func (c *PumpsClient) exist(nodeID string) bool {
 	return ok
 }
 
+//
+func (c *PumpsClient) getALlPumps() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			Logger.Info("[pumps client] watch status finished")
+			return
+		case <-time.Tick(30 * time.Second):
+			log.Infof("[pumps client] get all pumps again")
+			revision, err := c.getPumpStatus(c.ctx)
+			if err == nil {
+				c.Pumps.Lock()
+				c.Selector.SetPumps(copyPumps(c.Pumps.AvaliablePumps))
+				c.Pumps.Unlock()
+			}
+			log.Infof("[pumps client] get %d pumps, revision: %d", len(c.Pumps.Pumps), revision)
+			continue
+		}
+	}
+
+}
+
 // watchStatus watchs pump's status in etcd.
 func (c *PumpsClient) watchStatus(revision int64) {
 	defer c.wg.Done()
@@ -520,6 +544,7 @@ func (c *PumpsClient) watchStatus(revision int64) {
 				continue
 			}
 
+			Logger.Infof("[pumps client] get event revision %d", wresp.Header.Revision)
 			for _, ev := range wresp.Events {
 				status := &node.Status{}
 				err := json.Unmarshal(ev.Kv.Value, &status)
