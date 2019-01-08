@@ -168,7 +168,7 @@ func NewPumpsClient(etcdURLs string, timeout time.Duration, securityOpt pd.Secur
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	Logger.Infof("[pumps client] get all pumps, revision: %d", revision)
+	log.Infof("[pumps client] get all pumps, revision: %d", revision)
 
 	if len(newPumpsClient.Pumps.Pumps) == 0 {
 		return nil, errors.New("no pump found in pd")
@@ -238,7 +238,7 @@ func (c *PumpsClient) getPumpStatus(pctx context.Context) (revision int64, err e
 	}
 
 	for _, status := range nodesStatus {
-		Logger.Debugf("[pumps client] get pump %v from etcd", status)
+		log.Debugf("[pumps client] get pump %v from etcd", status)
 		c.addPump(NewPumpStatus(status, c.Security), false)
 	}
 
@@ -281,7 +281,7 @@ func (c *PumpsClient) WriteBinlog(binlog *pb.Binlog) error {
 			err = ErrNoAvaliablePump
 			break
 		}
-		Logger.Debugf("[pumps client] write binlog choose pump %s", pump.NodeID)
+		log.Debugf("[pumps client] write binlog choose pump %s", pump.NodeID)
 
 		resp, err = pump.WriteBinlog(req, c.BinlogWriteTimeout)
 		if err == nil && resp.Errmsg != "" {
@@ -292,7 +292,7 @@ func (c *PumpsClient) WriteBinlog(binlog *pb.Binlog) error {
 			return nil
 		}
 		errNums[pump]++
-		Logger.Warnf("[pumps client] write binlog to pump %s (type: %s, start ts: %d, commit ts: %d, length: %d) error %v", pump.NodeID, binlog.Tp, binlog.StartTs, binlog.CommitTs, len(commitData), err)
+		log.Warnf("[pumps client] write binlog to pump %s (type: %s, start ts: %d, commit ts: %d, length: %d) error %v", pump.NodeID, binlog.Tp, binlog.StartTs, binlog.CommitTs, len(commitData), err)
 
 		if binlog.Tp != pb.BinlogType_Prewrite {
 			// only use one pump to write commit/rollback binlog, util write success or blocked for ten minutes. And will not return error to tidb.
@@ -350,7 +350,7 @@ func (c *PumpsClient) backoffWriteBinlog(req *pb.WriteBinlogReq, binlogType pb.B
 				err = errors.New(resp.Errmsg)
 			} else {
 				// if this pump can write binlog success, set this pump to avaliable.
-				Logger.Debugf("[pumps client] write binlog to unavaliable pump %s success, set this pump to avaliable", pump.NodeID)
+				log.Debugf("[pumps client] write binlog to unavaliable pump %s success, set this pump to avaliable", pump.NodeID)
 				c.setPumpAvaliable(pump, true)
 				return pump, nil
 			}
@@ -489,7 +489,7 @@ func (c *PumpsClient) getALlPumps() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			Logger.Info("[pumps client] watch status finished")
+			log.Info("[pumps client] watch status finished")
 			return
 		case <-time.Tick(30 * time.Second):
 			log.Infof("[pumps client] get all pumps again")
@@ -515,7 +515,7 @@ func (c *PumpsClient) watchStatus(revision int64) {
 	for {
 		select {
 		case <-c.ctx.Done():
-			Logger.Info("[pumps client] watch status finished")
+			log.Info("[pumps client] watch status finished")
 			return
 		case <-time.Tick(30 * time.Second):
 			log.Infof("[pumps client] get all pumps again")
@@ -529,11 +529,10 @@ func (c *PumpsClient) watchStatus(revision int64) {
 			rch = c.EtcdRegistry.WatchNode(c.ctx, rootPath, revision)
 			continue
 		case wresp := <-rch:
-			log.Info("[pumps client] get new event")
 			err := wresp.Err()
 			if err != nil {
 				// meet error, some event may missed, get all the pump's information from etcd again.
-				Logger.Warnf("[pumps client] watch status meet error %v", err)
+				log.Warnf("[pumps client] watch status meet error %v", err)
 				revision, err = c.getPumpStatus(c.ctx)
 				if err == nil {
 					c.Pumps.Lock()
@@ -544,33 +543,33 @@ func (c *PumpsClient) watchStatus(revision int64) {
 				continue
 			}
 
-			Logger.Infof("[pumps client] get event revision %d", wresp.Header.Revision)
+			log.Infof("[pumps client] get event revision %d", wresp.Header.Revision)
 			for _, ev := range wresp.Events {
 				status := &node.Status{}
 				err := json.Unmarshal(ev.Kv.Value, &status)
 				if err != nil {
-					Logger.Errorf("[pumps client] unmarshal pump status %q failed", ev.Kv.Value)
+					log.Errorf("[pumps client] unmarshal pump status %q failed", ev.Kv.Value)
 					continue
 				}
 
 				switch ev.Type {
 				case mvccpb.PUT:
 					if !c.exist(status.NodeID) {
-						Logger.Infof("[pumps client] find a new pump %s", status.NodeID)
+						log.Infof("[pumps client] find a new pump %s", status.NodeID)
 						c.addPump(NewPumpStatus(status, c.Security), true)
 						continue
 					}
 
 					pump, avaliableChanged, avaliable := c.updatePump(status)
 					if avaliableChanged {
-						Logger.Infof("[pumps client] flag pump %s's state is changed to %s", pump.Status.NodeID, status.State)
+						log.Infof("[pumps client] flag pump %s's state is changed to %s", pump.Status.NodeID, status.State)
 						c.setPumpAvaliable(pump, avaliable)
 					}
 
 				case mvccpb.DELETE:
 					// now will not delete pump node in fact, just for compatibility.
 					nodeID := node.AnalyzeNodeID(string(ev.Kv.Key))
-					Logger.Infof("[pumps client] remove pump %s", nodeID)
+					log.Infof("[pumps client] remove pump %s", nodeID)
 					c.removePump(nodeID)
 				}
 			}
@@ -584,7 +583,7 @@ func (c *PumpsClient) detect() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			Logger.Infof("[pumps client] heartbeat finished")
+			log.Infof("[pumps client] heartbeat finished")
 			return
 		default:
 			// send detect binlog to pump, if this pump can return response without error
@@ -603,10 +602,10 @@ func (c *PumpsClient) detect() {
 			for _, pump := range needCheckPumps {
 				_, err := pump.WriteBinlog(req, c.BinlogWriteTimeout)
 				if err == nil {
-					Logger.Debugf("[pumps client] write detect binlog to unavaliable pump %s success", pump.NodeID)
+					log.Debugf("[pumps client] write detect binlog to unavaliable pump %s success", pump.NodeID)
 					checkPassPumps = append(checkPassPumps, pump)
 				} else {
-					Logger.Debugf("[pumps client] write detect binlog to pump %s error %v", pump.NodeID, err)
+					log.Debugf("[pumps client] write detect binlog to pump %s error %v", pump.NodeID, err)
 				}
 			}
 
@@ -621,10 +620,10 @@ func (c *PumpsClient) detect() {
 
 // Close closes the PumpsClient.
 func (c *PumpsClient) Close() {
-	Logger.Infof("[pumps client] is closing")
+	log.Infof("[pumps client] is closing")
 	c.cancel()
 	c.wg.Wait()
-	Logger.Infof("[pumps client] is closed")
+	log.Infof("[pumps client] is closed")
 }
 
 func isRetryableError(err error) bool {
